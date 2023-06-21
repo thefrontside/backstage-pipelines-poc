@@ -53,6 +53,10 @@ import {
   RELATION_PROVIDES_API,
 } from '@backstage/catalog-model';
 
+import {
+  ExampleComponent
+} from 'backstage-plugin-pipelines';
+
 import { TechDocsAddons } from '@backstage/plugin-techdocs-react';
 import { ReportIssue } from '@backstage/plugin-techdocs-module-addons-contrib';
 
@@ -114,6 +118,9 @@ const entityWarningContent = (
 const overviewContent = (
   <Grid container spacing={3} alignItems="stretch">
     {entityWarningContent}
+    <Grid item md={8} xs={12}>
+      <ExampleComponent  />
+    </Grid>
     <Grid item md={6}>
       <EntityAboutCard variant="gridItem" />
     </Grid>

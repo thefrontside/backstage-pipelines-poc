@@ -9,30 +9,70 @@ import {
   HeaderLabel,
   SupportButton,
 } from '@backstage/core-components';
-import { ExampleFetchComponent } from '../ExampleFetchComponent';
 
-export const ExampleComponent = () => (
-  <Page themeId="tool">
-    <Header title="Welcome to pipelines!" subtitle="Optional subtitle">
-      <HeaderLabel label="Owner" value="Team X" />
-      <HeaderLabel label="Lifecycle" value="Alpha" />
-    </Header>
-    <Content>
-      <ContentHeader title="Plugin title">
-        <SupportButton>A description of your plugin goes here.</SupportButton>
-      </ContentHeader>
-      <Grid container spacing={3} direction="column">
-        <Grid item>
-          <InfoCard title="Information card">
-            <Typography variant="body1">
-              All content should be wrapped in a card like this.
-            </Typography>
-          </InfoCard>
-        </Grid>
-        <Grid item>
-          <ExampleFetchComponent />
-        </Grid>
-      </Grid>
-    </Content>
-  </Page>
-);
+import { useEntity } from '@backstage/plugin-catalog-react';
+
+export function ExampleComponent() {
+  const { value: history} = useGerritCommitHistory();
+
+  return (
+    <InfoCard title="Gerrit Commit IDs">
+      <ol>
+      {history.commits.map((commit => (
+        <li key={commit.changeId}>{commit.changeId}: {commit.currentStage.name} ({commit.currentStage.type}) - {commit.currentStage.status}</li>
+      )))}
+      </ol>
+    </InfoCard>
+  );
+}
+
+export interface GerritCommitHistory {
+  commits: GerritCommitStatus;
+}
+
+export interface GerritCommitStatus {
+  currentStage: GerritCommitStage;
+  changeId: string;
+  subject: string;
+  status: "new" | "merged" | "aborted";
+}
+
+export function useGerritCommitHistory(): Async<GerritCommitHistory> {
+  return {
+    type: "resolved",
+    value: {
+      commits: [{
+        currentStage: { name: "pre merge", type: "jenkins", status: "failed" },
+        changeId: "12345",
+        subject: "make change to this code",
+        status: "new",
+      }, {
+        currentStage: { name: "post merge", type: "jenkins", status: "queued" },
+        changeId: "54321",
+        subject: "make change to this code",
+        status: "new",
+      }, {
+        currentStage: { name: "integration", type: "spinnaker", status: "queued" },
+        changeId: "22222",
+        subject: "make change to this code",
+        status: "new",
+      }],
+    }
+  };
+}
+
+export interface GerritCommitStage {
+  name: string;
+  type: string;
+  status: "passed" | "failed" | "queued";
+}
+
+export type Async<T> = {
+  type: "pending";
+} | {
+  type: "resolved";
+  value: T;
+} | {
+  type: "rejected";
+  error: Error;
+}
