@@ -18,6 +18,19 @@ spec:
   owner: guests
   system: examples
   providesApis: [example-grpc-api]
+  stages:
+    - name: pre merge
+      type: jenkins
+      host: https://...
+      outputs: [version]
+    - name: staging
+      type: jenkins
+      host: https://...
+      outputs: [chartName]
+    - name: integration
+      type: spinnaker
+      host: https://...
+      outputs: [URL]
 ---
 # https://backstage.io/docs/features/software-catalog/descriptor-format#kind-api
 apiVersion: backstage.io/v1alpha1
