@@ -20,7 +20,7 @@ export async function createRouter(
     response.json({ status: 'ok' });
   });
 
-  router.get('/history/*', (_, response) => {
+  router.get('/history/:entityMeta/:entityRef', (_, response) => {
     response.json({
       commits: [{
         currentStage: { name: "pre merge", type: "jenkins", status: "failed" },
