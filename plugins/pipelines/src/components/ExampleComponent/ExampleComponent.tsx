@@ -9,16 +9,25 @@ import {
   HeaderLabel,
   SupportButton,
 } from '@backstage/core-components';
+import { useState, useEffect } from "react";
 
+import { useApi, discoveryApiRef, fetchApiRef, type DiscoveryApi, type FetchApi } from '@backstage/core-plugin-api';
 import { useEntity } from '@backstage/plugin-catalog-react';
+import { stringifyEntityRef } from '@backstage/catalog-model';
 
 export function ExampleComponent() {
-  const { value: history} = useGerritCommitHistory();
+  const history = useGerritCommitHistory();
+
+  if (history.type === "pending") {
+    return "Loading...";
+  } else if (history.type === "rejected") {
+    return String(history.error);
+  }
 
   return (
     <InfoCard title="Gerrit Commit IDs">
       <ol>
-      {history.commits.map((commit => (
+      {history.value.commits.map((commit => (
         <li key={commit.changeId}>{commit.changeId}: {commit.currentStage.name} ({commit.currentStage.type}) - {commit.currentStage.status}</li>
       )))}
       </ol>
@@ -37,28 +46,61 @@ export interface GerritCommitStatus {
   status: "new" | "merged" | "aborted";
 }
 
+function useEntityRef() {
+  const entity = useEntity();
+  return stringifyEntityRef(entity.entity);
+}
+
+interface FetchHistoryOptions {
+  discovery: DiscoveryApi;
+  fetch: FetchApi;
+  entityRef: string;
+}
+async function fetchHistory(options: FetchHistoryOptions): Promise<GerritCommitHistory> {
+  const { discovery, fetch, entityRef } = options;
+  const base = await discovery.getBaseUrl("pipelines");
+  const response = await fetch.fetch(`${base}/history/${entityRef}`);
+  if (response.ok) {
+    return await response.json();
+  }
+  throw new Error(`${response.status}: ${response.statusText}`);
+}
+
 export function useGerritCommitHistory(): Async<GerritCommitHistory> {
-  return {
-    type: "resolved",
-    value: {
-      commits: [{
-        currentStage: { name: "pre merge", type: "jenkins", status: "failed" },
-        changeId: "12345",
-        subject: "make change to this code",
-        status: "new",
-      }, {
-        currentStage: { name: "post merge", type: "jenkins", status: "queued" },
-        changeId: "54321",
-        subject: "make change to this code",
-        status: "new",
-      }, {
-        currentStage: { name: "integration", type: "spinnaker", status: "queued" },
-        changeId: "22222",
-        subject: "make change to this code",
-        status: "new",
-      }],
-    }
-  };
+  const entityRef = useEntityRef();
+  const discovery = useApi(discoveryApiRef);
+  const fetch = useApi(fetchApiRef);
+  const [state, setState] = useState<Async<GerritCommitHistory>>({ type: "pending" });
+
+  useEffect(() => {
+    fetchHistory({ discovery, fetch, entityRef })
+    .then(value => setState({ type: "resolved", value }))
+    .catch(error => setState({ type: "rejected", error }))
+  }, [discovery, fetch, entityRef]);
+
+  return state;
+
+  /* return {
+   *   type: "resolved",
+   *   value: {
+   *     commits: [{
+   *       currentStage: { name: "pre merge", type: "jenkins", status: "failed" },
+   *       changeId: "12345",
+   *       subject: "make change to this code",
+   *       status: "new",
+   *     }, {
+   *       currentStage: { name: "post merge", type: "jenkins", status: "queued" },
+   *       changeId: "54321",
+   *       subject: "make change to this code",
+   *       status: "new",
+   *     }, {
+   *       currentStage: { name: "integration", type: "spinnaker", status: "queued" },
+   *       changeId: "22222",
+   *       subject: "make change to this code",
+   *       status: "new",
+   *     }],
+   *   }
+   * }; */
 }
 
 export interface GerritCommitStage {
