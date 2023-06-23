@@ -12,6 +12,8 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: example-website
+  annotations:
+    backstage.io/gerrit-project: https://gerrit.ericsson.com/CloudRAN-Example
 spec:
   type: website
   lifecycle: experimental
@@ -19,6 +21,8 @@ spec:
   system: examples
   providesApis: [example-grpc-api]
   stages:
+    - name: create
+      type: gerrit
     - name: pre merge
       type: jenkins
       host: https://...

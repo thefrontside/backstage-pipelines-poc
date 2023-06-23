@@ -33,6 +33,7 @@ import pipelines from './plugins/pipelines';
 import { PluginEnvironment } from './types';
 import { ServerPermissionClient } from '@backstage/plugin-permission-node';
 import { DefaultIdentityClient } from '@backstage/plugin-auth-node';
+import { CatalogClient } from '@backstage/catalog-client';
 
 function makeCreateEnv(config: Config) {
   const root = getRootLogger();
@@ -50,6 +51,9 @@ function makeCreateEnv(config: Config) {
     discovery,
     tokenManager,
   });
+  const catalogApi = new CatalogClient({
+    discoveryApi: discovery
+  })
 
   root.info(`Created UrlReader ${reader}`);
 
@@ -69,6 +73,7 @@ function makeCreateEnv(config: Config) {
       scheduler,
       permissions,
       identity,
+      catalog: catalogApi,
     };
   };
 }
