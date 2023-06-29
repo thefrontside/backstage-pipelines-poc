@@ -14,9 +14,10 @@ import { useState, useEffect } from "react";
 import { useApi, discoveryApiRef, fetchApiRef, type DiscoveryApi, type FetchApi } from '@backstage/core-plugin-api';
 import { useEntity } from '@backstage/plugin-catalog-react';
 import { stringifyEntityRef } from '@backstage/catalog-model';
+import { ChangePipelineStatus } from 'backstage-plugin-pipelines-common';
 
 export function ExampleComponent() {
-  const history = useGerritCommitHistory();
+  const history = useChangePipelineStatues();
 
   if (history.type === "pending") {
     return "Loading...";
@@ -27,23 +28,12 @@ export function ExampleComponent() {
   return (
     <InfoCard title="Gerrit Commit IDs">
       <ol>
-      {history.value.commits.map((commit => (
-        <li key={commit.changeId}>{commit.changeId}: {commit.currentStage.name} ({commit.currentStage.type}) - {commit.currentStage.status}</li>
+      {history.value.map((status => (
+        <li key={status.change.number}>{status.change.number}: {status.current.stage.name} ({status.current.stage.type}) - {status.current.status.type}</li>
       )))}
       </ol>
     </InfoCard>
   );
-}
-
-export interface GerritCommitHistory {
-  commits: GerritCommitStatus;
-}
-
-export interface GerritCommitStatus {
-  currentStage: GerritCommitStage;
-  changeId: string;
-  subject: string;
-  status: "new" | "merged" | "aborted";
 }
 
 function useEntityRef() {
@@ -56,7 +46,7 @@ interface FetchHistoryOptions {
   fetch: FetchApi;
   entityRef: string;
 }
-async function fetchHistory(options: FetchHistoryOptions): Promise<GerritCommitHistory> {
+async function fetchHistory(options: FetchHistoryOptions): Promise<ChangePipelineStatus[]> {
   const { discovery, fetch, entityRef } = options;
   const base = await discovery.getBaseUrl("pipelines");
   const response = await fetch.fetch(`${base}/history/${entityRef}`);
@@ -66,11 +56,11 @@ async function fetchHistory(options: FetchHistoryOptions): Promise<GerritCommitH
   throw new Error(`${response.status}: ${response.statusText}`);
 }
 
-export function useGerritCommitHistory(): Async<GerritCommitHistory> {
+export function useChangePipelineStatues(): Async<ChangePipelineStatus[]> {
   const entityRef = useEntityRef();
   const discovery = useApi(discoveryApiRef);
   const fetch = useApi(fetchApiRef);
-  const [state, setState] = useState<Async<GerritCommitHistory>>({ type: "pending" });
+  const [state, setState] = useState<Async<ChangePipelineStatus[]>>({ type: "pending" });
 
   useEffect(() => {
     fetchHistory({ discovery, fetch, entityRef })

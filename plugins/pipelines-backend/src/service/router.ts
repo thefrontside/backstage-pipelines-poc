@@ -4,52 +4,40 @@ import Router from 'express-promise-router';
 import { Logger } from 'winston';
 import type { CatalogClient } from "@backstage/catalog-client";
 import type { Entity } from '@backstage/catalog-model';
+import type { Stage, StageType, StageStatus, ChangeInfo, ChangePipelineStatus } from "backstage-plugin-pipelines-common";
 
 export interface RouterOptions {
   logger: Logger;
   catalog: CatalogClient;
 }
 
-export interface Stage {
-  name: string;
-  type: string;
-  host: string;
+interface PipelineClient {
+  getChangeInfoFromEntity(entity: Entity): Promise<ChangeInfo[]>;
+  getStatusForChange(stage: Stage, change: ChangeInfo): Promise<StageStatus>;
 }
 
-export interface ChangeInfo {
-  number: number;
-  subject: string;
-  status: "NEW" | "MERGED" | "ABANDONED";
-  branch: string;
-  projectName: string;
-  owner: {
-    name: string;
+export interface PipelineResolver {
+  (change: ChangeInfo, stage: Stage): Promise<StageStatus>;
+}
+
+
+function createPipelineClient(_gerritURL: string, resolvers: Record<StageType, PipelineResolver>): PipelineClient {
+
+  return {
+    async getChangeInfoFromEntity(entity) {
+      const annotations = entity.metadata.annotations ?? {};
+      const project = annotations["backstage.io/gerrit-project"];
+      if (!project) {
+        return [];
+      }
+      return await getChangInfoFromGerrit(project);
+    },
+    async getStatusForChange(stage, change) {
+      const resolver = resolvers[stage.type];
+      return await resolver(change, stage);
+    }
   }
 }
-
-export type ChangeStatus = {
-  type: "un-entered";
-} | {
-  type: "enqueued";
-} | {
-  type: "running";
-} | {
-  type: "passed";
-} | {
-  type: "failed";
-}
-
-interface PipelineClient {
-  getChangeInfoFromEntity(entity: Entity): Promise<ChangeInfo>;
-  getStatusForChange(stage: Stage, change: ChangeInfo): Promise<ChangeStatus>;
-  getStatusesForChange(stages: Stage, change: ChangeInfo): Promise<ChangeStatus[]>;
-}
-
-
-function createPipelineClient(gerritURL: string): PipelineClient {
-
-}
-
 
 async function getChangeInfoFromEntity(entity: Entity): Promise<ChangeInfo[]> {
   const annotations = entity.metadata.annotations ?? {};
@@ -60,12 +48,28 @@ async function getChangeInfoFromEntity(entity: Entity): Promise<ChangeInfo[]> {
   return await getChangInfoFromGerrit(project);
 }
 
+import { faker } from '@faker-js/faker';
+
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
   const { logger, catalog } = options;
 
-  let client = createPipelineClient("url");
+  function randomStatusName() {
+    return faker.helpers.arrayElement<StageStatus["type"]>(["un-entered", "enqueued", "running", "passed", "failed"]);
+  }
+
+  const client = createPipelineClient("url", {
+    async jenkins() {
+      return { type: randomStatusName() };
+    },
+    async gerrit() {
+      return { type: randomStatusName() };
+    },
+    async spinnaker() {
+      return { type: randomStatusName() };
+    }
+  });
 
   const router = Router();
   router.use(express.json());
@@ -88,53 +92,37 @@ export async function createRouter(
       return;
     }
 
-    async function getStatusForChange(stage: Stage, change: ChangeInfo): Promise<ChangeStatus> {
-
-    }
-
-    async function getStageStatusesForChange(change: ChangeInfo, stages: Stage[]) {
-      return await Promise.all(stages.map(stage => getStatusForChange(stage, change)));
+    async function getStageStatusesForChange(change: ChangeInfo, stages: Stage[]): Promise<ChangePipelineStatus> {
+      const statuses = await Promise.all(stages.map(stage => client.getStatusForChange(stage, change)));
+      const stageStatuses = statuses.map((status, i) => ({ stage: stages[i], status }));
+      let current = stageStatuses[0];
+      for (let i = 1; i < stageStatuses.length; i++) {
+        const next = stageStatuses[i];
+        if (next.status.type === "un-entered") {
+          break;
+        }
+        current = next;
+      }
+      return {
+        change,
+        current,
+        stages: stageStatuses,
+      }
     }
 
     const changes = await getChangeInfoFromEntity(entity);
 
-    const stages: Stage = entity.spec.stages ?? [];
+    const stages: Stage[] = (entity.spec?.stages ?? []) as unknown as Stage[];
 
-    const status = Promise.all(changes.map(change => getStageStatusesForChange(change, stages)));
+    const statuses = await Promise.all(changes.map(change => getStageStatusesForChange(change, stages)));
 
-
-
-    console.dir({ entity });
-
-    // 2. get the list of change ids for this project (we can handle paging
-    // 3. backwards to deeper history later)
-    // 4. dig out the shape of the expected stages for this entity
-    // query the stages individually
-
-    response.json({
-      commits: [{
-        currentStage: { name: "pre merge", type: "jenkins", status: "failed" },
-        changeId: "12345",
-        subject: "make change to this code",
-        status: "new",
-      }, {
-        currentStage: { name: "post merge", type: "jenkins", status: "queued" },
-        changeId: "54321",
-        subject: "make change to this code",
-        status: "new",
-      }, {
-        currentStage: { name: "integration", type: "spinnaker", status: "queued" },
-        changeId: "22222",
-        subject: "make change to this code",
-        status: "new",
-      }],
-    })
+    response.json(statuses);
   })
   router.use(errorHandler());
   return router;
 }
 
-async function getChangInfoFromGerrit(project): Promise<ChangeInfo[]> {
+async function getChangInfoFromGerrit(project: string): Promise<ChangeInfo[]> {
   return [
     {
       "id": "demo~master~Idaf5e098d70898b7119f6f4af5a6c13343d64b57",
@@ -159,7 +147,7 @@ async function getChangInfoFromGerrit(project): Promise<ChangeInfo[]> {
       "mergeable": true,
       "insertions": 26,
       "deletions": 10,
-      "_number": 1756,
+      "number": 1756,
       "owner": {
         "name": "John Doe"
       },
@@ -176,7 +164,7 @@ async function getChangInfoFromGerrit(project): Promise<ChangeInfo[]> {
       "mergeable": true,
       "insertions": 12,
       "deletions": 18,
-      "_number": 1757,
+      "number": 1757,
       "owner": {
         "name": "John Doe"
       },

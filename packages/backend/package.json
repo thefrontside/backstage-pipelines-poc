@@ -35,7 +35,6 @@
     "@backstage/plugin-techdocs-backend": "^1.6.3",
     "app": "link:../app",
     "backstage-plugin-pipelines-backend": "^0.1.0",
-    "backstage-plugin-pipelines-backend-backend": "^0.1.0",
     "better-sqlite3": "^8.0.0",
     "dockerode": "^3.3.1",
     "express": "^4.17.1",
