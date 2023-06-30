@@ -1,4 +1,4 @@
-import { errorHandler } from '@backstage/backend-common';
+import { PluginDatabaseManager, errorHandler } from '@backstage/backend-common';
 import express from 'express';
 import Router from 'express-promise-router';
 import { Logger } from 'winston';
@@ -9,6 +9,7 @@ import type { Stage, StageType, StageStatus, ChangeInfo, ChangePipelineStatus } 
 export interface RouterOptions {
   logger: Logger;
   catalog: CatalogClient;
+  database: PluginDatabaseManager;
 }
 
 interface PipelineClient {
@@ -49,11 +50,16 @@ async function getChangeInfoFromEntity(entity: Entity): Promise<ChangeInfo[]> {
 }
 
 import { faker } from '@faker-js/faker';
+import { applyDatabaseMigrations } from '../migrations';
 
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
   const { logger, catalog } = options;
+
+  const knex = await options.database.getClient();
+
+  await applyDatabaseMigrations(knex);
 
   function randomStatusName() {
     return faker.helpers.arrayElement<StageStatus["type"]>(["un-entered", "enqueued", "running", "passed", "failed"]);
