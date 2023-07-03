@@ -3,7 +3,17 @@
  * @returns { Promise<void> }
  */
 exports.up = async (knex) => {
-  await knex.schema.createTable("pipeline_changes", (table) => {
+
+  // export interface ChangeInfo {
+  //   number: number;
+  //   subject: string;
+  //   status: "NEW" | "MERGED" | "ABANDONED";
+  //   branch: string;
+  //   projectName: string;
+  //   ownerName: string;
+  // }
+
+  await knex.schema.createTable("changes", (table) => {
     table.string('id');
     table.primary('id');
     table.integer('number');
@@ -19,5 +29,5 @@ exports.up = async (knex) => {
  * @returns { Promise<void> }
  */
 exports.down = async (knex) => {
-  await knex.schema.dropTable("pipeline_changes");
+  await knex.schema.dropTable("changes");
 };

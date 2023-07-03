@@ -9,5 +9,6 @@ export default async function createPlugin(
     logger: env.logger,
     catalog: env.catalog,
     database: env.database,
+    scheduler: env.scheduler,
   });
 }

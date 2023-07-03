@@ -2,14 +2,17 @@ import { PluginDatabaseManager, errorHandler } from '@backstage/backend-common';
 import express from 'express';
 import Router from 'express-promise-router';
 import { Logger } from 'winston';
-import type { CatalogClient } from "@backstage/catalog-client";
+import { CATALOG_FILTER_EXISTS, type CatalogClient } from "@backstage/catalog-client";
 import type { Entity } from '@backstage/catalog-model';
 import type { Stage, StageType, StageStatus, ChangeInfo, ChangePipelineStatus } from "backstage-plugin-pipelines-common";
+import type { PluginTaskScheduler } from '@backstage/backend-tasks';
+import { v4 } from 'uuid';
 
 export interface RouterOptions {
   logger: Logger;
   catalog: CatalogClient;
   database: PluginDatabaseManager;
+  scheduler: PluginTaskScheduler;
 }
 
 interface PipelineClient {
@@ -31,22 +34,18 @@ function createPipelineClient(_gerritURL: string, resolvers: Record<StageType, P
       if (!project) {
         return [];
       }
-      return await getChangInfoFromGerrit(project);
+      const upstream = await getChangeInfoFromGerrit(project);
+      return upstream.map(info => ({
+        ...info,
+        projectName: project,
+        ownerName: info.owner.name,
+      }));
     },
     async getStatusForChange(stage, change) {
       const resolver = resolvers[stage.type];
       return await resolver(change, stage);
     }
   }
-}
-
-async function getChangeInfoFromEntity(entity: Entity): Promise<ChangeInfo[]> {
-  const annotations = entity.metadata.annotations ?? {};
-  const project = annotations["backstage.io/gerrit-project"];
-  if (!project) {
-    return [];
-  }
-  return await getChangInfoFromGerrit(project);
 }
 
 import { faker } from '@faker-js/faker';
@@ -56,14 +55,6 @@ export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
   const { logger, catalog } = options;
-
-  const knex = await options.database.getClient();
-
-  await applyDatabaseMigrations(knex);
-
-  function randomStatusName() {
-    return faker.helpers.arrayElement<StageStatus["type"]>(["un-entered", "enqueued", "running", "passed", "failed"]);
-  }
 
   const client = createPipelineClient("url", {
     async jenkins() {
@@ -76,6 +67,51 @@ export async function createRouter(
       return { type: randomStatusName() };
     }
   });
+
+  const knex = await options.database.getClient();
+
+  await applyDatabaseMigrations(knex);
+
+  options.scheduler.scheduleTask({
+    id: 'update-pipelines',
+    frequency: { seconds: 10 },
+    timeout: { hours: 24 },
+    async fn() {
+      logger.info("the schedule is running!");
+      const entities = await catalog.getEntities({
+        filter: [
+          { kind: 'component' },
+          { "spec.stages": CATALOG_FILTER_EXISTS },
+        ]
+      })
+
+      for (const entity of entities.items) {
+        const changes = await client.getChangeInfoFromEntity(entity);
+        for (const change of changes) {
+          const { projectName, ownerName, number, subject, status } = change;
+          const existing = await knex.select().from('changes').where({ projectName, number }).first();
+          const attrs = { ownerName, projectName, number, subject, status };
+          if (existing) {
+            await knex('changes').update(attrs);
+          } else {
+            const id = v4();
+            await knex('changes').insert({
+              ...attrs,
+              id
+            })
+          }
+        }
+      }
+
+      //logger.info(JSON.stringify(entities, null, 2));
+      // walk the projects
+      // get statuses for each.
+    }
+  })
+
+  function randomStatusName() {
+    return faker.helpers.arrayElement<StageStatus["type"]>(["un-entered", "enqueued", "running", "passed", "failed"]);
+  }
 
   const router = Router();
   router.use(express.json());
@@ -128,7 +164,7 @@ export async function createRouter(
   return router;
 }
 
-async function getChangInfoFromGerrit(project: string): Promise<ChangeInfo[]> {
+async function getChangeInfoFromGerrit(_project: string) {
   return [
     {
       "id": "demo~master~Idaf5e098d70898b7119f6f4af5a6c13343d64b57",
@@ -176,5 +212,5 @@ async function getChangInfoFromGerrit(project: string): Promise<ChangeInfo[]> {
       },
       "_more_changes": true
     }
-  ]
+  ] as const;
 }

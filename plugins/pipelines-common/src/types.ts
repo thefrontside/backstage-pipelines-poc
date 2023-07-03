@@ -12,9 +12,7 @@ export interface ChangeInfo {
   status: "NEW" | "MERGED" | "ABANDONED";
   branch: string;
   projectName: string;
-  owner: {
-    name: string;
-  }
+  ownerName: string;
 }
 
 /**
