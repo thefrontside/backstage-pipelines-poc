@@ -15,9 +15,15 @@ export interface RouterOptions {
   scheduler: PluginTaskScheduler;
 }
 
+interface PipelineStageStatus {
+  stage: Stage;
+  status: StageStatus;
+}
+
 interface PipelineClient {
   getChangeInfoFromEntity(entity: Entity): Promise<ChangeInfo[]>;
   getStatusForChange(stage: Stage, change: ChangeInfo): Promise<StageStatus>;
+  getStageStatusesForChange(change: ChangeInfo, stages: Stage[]): Promise<PipelineStageStatus[]>;
 }
 
 export interface PipelineResolver {
@@ -27,7 +33,7 @@ export interface PipelineResolver {
 
 function createPipelineClient(_gerritURL: string, resolvers: Record<StageType, PipelineResolver>): PipelineClient {
 
-  return {
+  const client: PipelineClient = {
     async getChangeInfoFromEntity(entity) {
       const annotations = entity.metadata.annotations ?? {};
       const project = annotations["backstage.io/gerrit-project"];
@@ -44,8 +50,14 @@ function createPipelineClient(_gerritURL: string, resolvers: Record<StageType, P
     async getStatusForChange(stage, change) {
       const resolver = resolvers[stage.type];
       return await resolver(change, stage);
+    },
+    async getStageStatusesForChange(change, stages) {
+      const statuses = await Promise.all(stages.map(stage => client.getStatusForChange(stage, change)));
+      const stageStatuses = statuses.map((status, i) => ({ stage: stages[i], status }));
+      return stageStatuses;
     }
   }
+  return client;
 }
 
 import { faker } from '@faker-js/faker';
@@ -72,12 +84,13 @@ export async function createRouter(
 
   await applyDatabaseMigrations(knex);
 
-  options.scheduler.scheduleTask({
+  await options.scheduler.scheduleTask({
     id: 'update-pipelines',
     frequency: { seconds: 10 },
     timeout: { hours: 24 },
     async fn() {
-      logger.info("the schedule is running!");
+      logger.info("querying changes!");
+      // TODO: this should be paginated
       const entities = await catalog.getEntities({
         filter: [
           { kind: 'component' },
@@ -90,22 +103,23 @@ export async function createRouter(
         for (const change of changes) {
           const { projectName, ownerName, number, subject, status } = change;
           const existing = await knex.select().from('changes').where({ projectName, number }).first();
-          const attrs = { ownerName, projectName, number, subject, status };
+          const stages: Stage[] = (entity.spec?.stages ?? []) as unknown as Stage[];
+          const statuses = await client.getStageStatusesForChange(change, stages);
+          console.dir({ statuses });
+          const attrs = { ownerName, subject, status, statuses: JSON.stringify(statuses) };
           if (existing) {
             await knex('changes').update(attrs);
           } else {
             const id = v4();
             await knex('changes').insert({
               ...attrs,
-              id
+              id,
+              projectName,
+              number,
             })
           }
         }
       }
-
-      //logger.info(JSON.stringify(entities, null, 2));
-      // walk the projects
-      // get statuses for each.
     }
   })
 

@@ -21,6 +21,7 @@ exports.up = async (knex) => {
     table.enu('status', ['NEW', 'MERGED', 'ABANDONED']);
     table.string("projectName");
     table.string("ownerName");
+    table.unique(['projectName', 'number']);
   })
 };
 
