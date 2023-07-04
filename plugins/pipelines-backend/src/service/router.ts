@@ -31,12 +31,17 @@ export interface PipelineResolver {
 }
 
 
+function getGerritProjectFromEntity(entity: Entity): string | undefined {
+  const annotations = entity.metadata.annotations ?? {};
+  const project = annotations["backstage.io/gerrit-project"];
+  return project;
+}
+
 function createPipelineClient(_gerritURL: string, resolvers: Record<StageType, PipelineResolver>): PipelineClient {
 
   const client: PipelineClient = {
     async getChangeInfoFromEntity(entity) {
-      const annotations = entity.metadata.annotations ?? {};
-      const project = annotations["backstage.io/gerrit-project"];
+      const project = getGerritProjectFromEntity(entity);
       if (!project) {
         return [];
       }
@@ -105,7 +110,6 @@ export async function createRouter(
           const existing = await knex.select().from('changes').where({ projectName, number }).first();
           const stages: Stage[] = (entity.spec?.stages ?? []) as unknown as Stage[];
           const statuses = await client.getStageStatusesForChange(change, stages);
-          console.dir({ statuses });
           const attrs = { ownerName, subject, status, statuses: JSON.stringify(statuses) };
           if (existing) {
             await knex('changes').update(attrs);
@@ -148,32 +152,29 @@ export async function createRouter(
       return;
     }
 
-    async function getStageStatusesForChange(change: ChangeInfo, stages: Stage[]): Promise<ChangePipelineStatus> {
-      const statuses = await Promise.all(stages.map(stage => client.getStatusForChange(stage, change)));
-      const stageStatuses = statuses.map((status, i) => ({ stage: stages[i], status }));
-      let current = stageStatuses[0];
-      for (let i = 1; i < stageStatuses.length; i++) {
-        const next = stageStatuses[i];
-        if (next.status.type === "un-entered") {
-          break;
-        }
-        current = next;
-      }
-      return {
-        change,
-        current,
-        stages: stageStatuses,
-      }
+    const projectName = getGerritProjectFromEntity(entity);
+
+    if (projectName) {
+      const rows = await knex('changes').where({ projectName });
+      response.json(rows.map(row => ({
+        change: row,
+        current: (() => {
+          let current = void 0;
+          for (const status of row.statuses) {
+            if (status.status.type === "un-entered") {
+              break;
+            }
+            current = status;
+          }
+          return current;
+        })(),
+        stages: row.statuses,
+      })));
+    } else {
+      response.json([]);
     }
-
-    const changes = await getChangeInfoFromEntity(entity);
-
-    const stages: Stage[] = (entity.spec?.stages ?? []) as unknown as Stage[];
-
-    const statuses = await Promise.all(changes.map(change => getStageStatusesForChange(change, stages)));
-
-    response.json(statuses);
   })
+
   router.use(errorHandler());
   return router;
 }
